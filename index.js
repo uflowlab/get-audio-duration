@@ -1,14 +1,17 @@
 const express = require('express');
-const multer  = require('multer');
 const { getAudioDurationInSeconds } = require('get-audio-duration');
-
+const { v4: uuidv4 } = require('uuid');
+const fs = require('fs/promises');
+const path = require('path');
+const axios = require('axios');
 const app    = express();
-const upload = multer({ storage: multer.memoryStorage() }); // keep everything in RAM
 
+app.use(express.json());
 
 app.get('/healthz/', async (req, res) => {
 	return res.json({message: 'success'})
 })
+
 
 app.post('/duration', async (req, res) => {
   const { url } = req.body;
@@ -16,22 +19,25 @@ app.post('/duration', async (req, res) => {
   if (!url) return res.status(400).json({ error: 'Missing "url" in request body' });
 
   try {
-    // Download the audio file as a buffer
     const response = await axios.get(url, { responseType: 'arraybuffer' });
     const buffer = Buffer.from(response.data);
 
-    const seconds = await getAudioDurationInSeconds(buffer);
+    // Generate a temporary filename
+    const tempFilePath = path.join('/tmp', `${uuidv4()}.wav`);
+    await fs.writeFile(tempFilePath, buffer);
 
-    // Optional: Extract file name from URL
+    const seconds = await getAudioDurationInSeconds(tempFilePath);
+
+    // Clean up the temp file
+    await fs.unlink(tempFilePath);
+
     const fileName = url.split('/').pop() || 'unknown';
-
     return res.json(buildPayload(seconds, fileName));
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: err.message });
   }
 });
-
 /* Helper to format the JSON response */
 function buildPayload(seconds, identifier) {
   return {
