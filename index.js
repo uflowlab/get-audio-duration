@@ -6,7 +6,7 @@ const app    = express();
 const upload = multer({ storage: multer.memoryStorage() }); // keep everything in RAM
 
 
-app.get('/health/', async (req, res) => {
+app.get('/healthz/', async (req, res) => {
 	return res.json({message: 'success'})
 })
 /* GET route (uses a file already on disk) ───────────────────────────── */
