@@ -9,28 +9,25 @@ const upload = multer({ storage: multer.memoryStorage() }); // keep everything i
 app.get('/healthz/', async (req, res) => {
 	return res.json({message: 'success'})
 })
-/* GET route (uses a file already on disk) ───────────────────────────── */
-app.get('/duration', async (req, res) => {
-  const { file } = req.query;
-  if (!file) return res.status(400).json({ error: 'Missing ?file=/path/to/audio' });
+
+app.post('/duration', async (req, res) => {
+  const { url } = req.body;
+
+  if (!url) return res.status(400).json({ error: 'Missing "url" in request body' });
 
   try {
-    const seconds = await getAudioDurationInSeconds(file);
-    return res.json(buildPayload(seconds, file));
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
+    // Download the audio file as a buffer
+    const response = await axios.get(url, { responseType: 'arraybuffer' });
+    const buffer = Buffer.from(response.data);
 
-/* POST route (upload new audio via multipart) ───────────────────────── */
-app.post('/duration', upload.single('audio'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Form field "audio" not found' });
+    const seconds = await getAudioDurationInSeconds(buffer);
 
-  try {
-    const buffer  = req.file.buffer;
-    const seconds = await getAudioDurationInSeconds(buffer); // library accepts Buffers
-    return res.json(buildPayload(seconds, req.file.originalname));
+    // Optional: Extract file name from URL
+    const fileName = url.split('/').pop() || 'unknown';
+
+    return res.json(buildPayload(seconds, fileName));
   } catch (err) {
+    console.error(err);
     return res.status(500).json({ error: err.message });
   }
 });
