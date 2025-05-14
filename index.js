@@ -7,6 +7,8 @@ const axios = require('axios');
 const app = express();
 const ffmpeg = require('fluent-ffmpeg');
 const tmp = require('tmp');
+const fsSync = require('fs');              // For streaming methods like fs.createWriteStream
+
 
 app.use(express.json());
 
@@ -58,7 +60,7 @@ app.post('/combine-audios', async (req, res) => {
   async function downloadAudio(url) {
     const response = await axios({ url, responseType: 'stream' });
     const tempFile = tmp.tmpNameSync({ postfix: '.mp3' });
-    const writer = fs.createWriteStream(tempFile);
+    const writer = fsSync.createWriteStream(tempFile);
     response.data.pipe(writer);
 
     return new Promise((resolve, reject) => {
@@ -74,7 +76,7 @@ app.post('/combine-audios', async (req, res) => {
     // 2. Create a temp file list for ffmpeg
     const ffmpegInput = tempFiles.map(file => `file '${file}'`).join('\n');
     const tempFileList = tmp.tmpNameSync({ postfix: '.txt' });
-    fs.writeFileSync(tempFileList, ffmpegInput);
+    fsSync.writeFileSync(tempFileList, ffmpegInput);
 
     // 3. Create a temporary output file
     const outputFile = tmp.tmpNameSync({ postfix: '.mp3' });
@@ -88,9 +90,9 @@ app.post('/combine-audios', async (req, res) => {
         // 5. Send the resulting audio file
         res.sendFile(outputFile, err => {
           // Clean up files after sending
-          tempFiles.forEach(f => fs.unlinkSync(f));
-          fs.unlinkSync(tempFileList);
-          fs.unlinkSync(outputFile);
+          tempFiles.forEach(f => fsSync.unlinkSync(f));
+          fsSync.unlinkSync(tempFileList);
+          fsSync.unlinkSync(outputFile);
           if (err) {
             console.error('Error sending file:', err);
           }
@@ -98,8 +100,8 @@ app.post('/combine-audios', async (req, res) => {
       })
       .on('error', (err) => {
         console.error('Error during concatenation:', err);
-        tempFiles.forEach(f => fs.unlinkSync(f));
-        fs.unlinkSync(tempFileList);
+        tempFiles.forEach(f => fsSync.unlinkSync(f));
+        fsSync.unlinkSync(tempFileList);
         res.status(500).json({ error: 'Audio concatenation failed.' });
       })
       .run();
