@@ -55,7 +55,8 @@ function buildPayload(seconds, identifier) {
 
 app.post('/combine-audios', async (req, res) => {
   const { urls } = req.body;
-
+  
+  const urlArr = urls.split(', ');
   // Function to download audio from a URL and save to a temporary file
   async function downloadAudio(url) {
     const response = await axios({ url, responseType: 'stream' });
@@ -71,7 +72,7 @@ app.post('/combine-audios', async (req, res) => {
 
   try {
     // 1. Download all the audio files
-    const tempFiles = await Promise.all(urls.map(downloadAudio));
+    const tempFiles = await Promise.all(urlArr.map(downloadAudio));
 
     // 2. Create a temp file list for ffmpeg
     const ffmpegInput = tempFiles.map(file => `file '${file}'`).join('\n');
