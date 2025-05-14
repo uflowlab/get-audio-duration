@@ -8,6 +8,8 @@ const app = express();
 const ffmpeg = require('fluent-ffmpeg');
 const tmp = require('tmp');
 const fsSync = require('fs');
+const https = require('https');
+
 
 
 app.use(express.json());
@@ -55,7 +57,9 @@ function buildPayload(seconds, identifier) {
 
 app.post('/combine-audios', async (req, res) => {
   let { urls } = req.body;
-
+  const agent = new https.Agent({
+    keepAlive: true
+  });
   // Split URLs
   urls = urls.split(', ');
 
@@ -63,7 +67,7 @@ app.post('/combine-audios', async (req, res) => {
   async function downloadAudio(url) {
     const tempFile = tmp.tmpNameSync({ postfix: '.mp3' });
     const writer = fsSync.createWriteStream(tempFile);
-    const response = await axios({ url, responseType: 'stream', family: 4 });
+    const response = await axios({ url, responseType: 'stream', family: 4, httpsAgent: agent });
 
     return new Promise((resolve, reject) => {
       response.data.pipe(writer);
