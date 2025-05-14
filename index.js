@@ -63,7 +63,7 @@ app.post('/combine-audios', async (req, res) => {
   async function downloadAudio(url) {
     const tempFile = tmp.tmpNameSync({ postfix: '.mp3' });
     const writer = fsSync.createWriteStream(tempFile);
-    const response = await axios({ url, responseType: 'stream' });
+    const response = await axios({ url, responseType: 'stream', family: 4 });
 
     return new Promise((resolve, reject) => {
       response.data.pipe(writer);
