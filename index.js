@@ -7,7 +7,7 @@ const axios = require('axios');
 const app = express();
 const ffmpeg = require('fluent-ffmpeg');
 const tmp = require('tmp');
-const fsSync = require('fs');              // For streaming methods like fs.createWriteStream
+const fsSync = require('fs');
 
 
 app.use(express.json());
@@ -54,61 +54,74 @@ function buildPayload(seconds, identifier) {
 
 
 app.post('/combine-audios', async (req, res) => {
-  const { urls } = req.body;
-  
-  const urlArr = urls.split(', ');
+  let { urls } = req.body;
+
+  // Split URLs
+  urls = urls.split(', ');
+
   // Function to download audio from a URL and save to a temporary file
   async function downloadAudio(url) {
-    const response = await axios({ url, responseType: 'stream' });
     const tempFile = tmp.tmpNameSync({ postfix: '.mp3' });
     const writer = fsSync.createWriteStream(tempFile);
-    response.data.pipe(writer);
+    const response = await axios({ url, responseType: 'stream' });
 
     return new Promise((resolve, reject) => {
+      response.data.pipe(writer);
       writer.on('finish', () => resolve(tempFile));
-      writer.on('error', (err) => reject(err));
+      writer.on('error', reject);
     });
   }
 
   try {
-    // 1. Download all the audio files
-    const tempFiles = await Promise.all(urlArr.map(downloadAudio));
+    // Download all audio files
+    const audioFiles = await Promise.all(urls.map(downloadAudio));
 
-    // 2. Create a temp file list for ffmpeg
-    const ffmpegInput = tempFiles.map(file => `file '${file}'`).join('\n');
-    const tempFileList = tmp.tmpNameSync({ postfix: '.txt' });
-    fsSync.writeFileSync(tempFileList, ffmpegInput);
+    // Create file list for ffmpeg
+    const fileListContent = audioFiles.map(file => `file '${file}'`).join('\n');
+    const listFile = tmp.tmpNameSync({ postfix: '.txt' });
+    fsSync.writeFileSync(listFile, fileListContent); // Write the list file
 
-    // 3. Create a temporary output file
+    // Generate the output file in the tmp folder
     const outputFile = tmp.tmpNameSync({ postfix: '.mp3' });
 
-    // 4. Run ffmpeg to concatenate
+    console.log('List file:', listFile); // Debugging
+    console.log('Output file:', outputFile); // Debugging
+
+    // Running FFmpeg
     ffmpeg()
-      .input(tempFileList)
-      .inputOptions('-f concat', '-safe 0')
-      .output(outputFile)
+      .input(listFile) // Input list of files
+      .inputOptions('-f', 'concat', '-safe', '0') // Concat protocol
+      .outputOptions('-c:a', 'mp3') // Re-encode to mp3
+      .output(outputFile) // Output to temporary file
       .on('end', () => {
-        // 5. Send the resulting audio file
-        res.sendFile(outputFile, err => {
-          // Clean up files after sending
-          tempFiles.forEach(f => fsSync.unlinkSync(f));
-          fsSync.unlinkSync(tempFileList);
-          fsSync.unlinkSync(outputFile);
+        console.log('FFmpeg finished concatenation');
+
+        // Send the output file in response
+        res.sendFile(outputFile, (err) => {
           if (err) {
-            console.error('Error sending file:', err);
+            console.error('SendFile error:', err);
           }
+
+          // Clean up temp files
+          fsSync.unlink(outputFile, () => {});
+          fsSync.unlink(listFile, () => {});
+          audioFiles.forEach(file => fsSync.unlink(file, () => {}));
         });
       })
       .on('error', (err) => {
-        console.error('Error during concatenation:', err);
-        tempFiles.forEach(f => fsSync.unlinkSync(f));
-        fsSync.unlinkSync(tempFileList);
-        res.status(500).json({ error: 'Audio concatenation failed.' });
+        console.error('FFmpeg error:', err);
+
+        // Clean up
+        fsSync.unlink(listFile, () => {});
+        audioFiles.forEach(file => fsSync.unlink(file, () => {}));
+
+        // Send error response
+        res.status(500).json({ error: 'Failed to combine audio.' });
       })
-      .run();
+      .run(); // Run FFmpeg
   } catch (err) {
     console.error('Unexpected error:', err);
-    res.status(500).json({ error: 'Server error during processing.' });
+    res.status(500).json({ error: 'Unexpected server error.' });
   }
 });
 
