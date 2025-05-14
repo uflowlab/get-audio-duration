@@ -9,8 +9,7 @@ const ffmpeg = require('fluent-ffmpeg');
 const tmp = require('tmp');
 const fsSync = require('fs');
 const https = require('https');
-
-
+const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 app.use(express.json());
 
@@ -54,59 +53,52 @@ function buildPayload(seconds, identifier) {
   };
 }
 
+// make sure this is installed if you're on Node <18
 
 app.post('/combine-audios', async (req, res) => {
   let { urls } = req.body;
-  const agent = new https.Agent({
-    keepAlive: true
-  });
-  // Split URLs
+  const agent = new https.Agent({ keepAlive: true });
+
   urls = urls.split(', ');
 
-  // Function to download audio from a URL and save to a temporary file
+  // Download using fetch now
   async function downloadAudio(url) {
     const tempFile = tmp.tmpNameSync({ postfix: '.mp3' });
     const writer = fsSync.createWriteStream(tempFile);
-    const response = await axios({ url, responseType: 'stream', family: 4, httpsAgent: agent });
+    const response = await fetch(url, { agent });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
+    }
 
     return new Promise((resolve, reject) => {
-      response.data.pipe(writer);
+      response.body.pipe(writer);
       writer.on('finish', () => resolve(tempFile));
       writer.on('error', reject);
     });
   }
 
   try {
-    // Download all audio files
     const audioFiles = await Promise.all(urls.map(downloadAudio));
 
-    // Create file list for ffmpeg
     const fileListContent = audioFiles.map(file => `file '${file}'`).join('\n');
     const listFile = tmp.tmpNameSync({ postfix: '.txt' });
-    fsSync.writeFileSync(listFile, fileListContent); // Write the list file
+    fsSync.writeFileSync(listFile, fileListContent);
 
-    // Generate the output file in the tmp folder
     const outputFile = tmp.tmpNameSync({ postfix: '.mp3' });
 
-    console.log('List file:', listFile); // Debugging
-    console.log('Output file:', outputFile); // Debugging
+    console.log('List file:', listFile);
+    console.log('Output file:', outputFile);
 
-    // Running FFmpeg
     ffmpeg()
-      .input(listFile) // Input list of files
-      .inputOptions('-f', 'concat', '-safe', '0') // Concat protocol
-      .outputOptions('-c:a', 'mp3') // Re-encode to mp3
-      .output(outputFile) // Output to temporary file
+      .input(listFile)
+      .inputOptions('-f', 'concat', '-safe', '0')
+      .outputOptions('-c:a', 'mp3')
+      .output(outputFile)
       .on('end', () => {
         console.log('FFmpeg finished concatenation');
-
-        // Send the output file in response
         res.sendFile(outputFile, (err) => {
-          if (err) {
-            console.error('SendFile error:', err);
-          }
-
-          // Clean up temp files
+          if (err) console.error('SendFile error:', err);
           fsSync.unlink(outputFile, () => {});
           fsSync.unlink(listFile, () => {});
           audioFiles.forEach(file => fsSync.unlink(file, () => {}));
@@ -114,15 +106,11 @@ app.post('/combine-audios', async (req, res) => {
       })
       .on('error', (err) => {
         console.error('FFmpeg error:', err);
-
-        // Clean up
         fsSync.unlink(listFile, () => {});
         audioFiles.forEach(file => fsSync.unlink(file, () => {}));
-
-        // Send error response
         res.status(500).json({ error: 'Failed to combine audio.' });
       })
-      .run(); // Run FFmpeg
+      .run();
   } catch (err) {
     console.error('Unexpected error:', err);
     res.status(500).json({ error: 'Unexpected server error.' });
